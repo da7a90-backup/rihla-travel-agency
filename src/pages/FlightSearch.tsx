@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plane, Clock, Users, Wifi, Coffee, ArrowRight } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { format } from "date-fns";
 
 // Mock flight data - In real app, this would come from Amadeus API
 const mockFlights = [
@@ -56,12 +57,20 @@ const FlightSearch = () => {
     navigate("/booking", { state: { flight, searchData } });
   };
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('ar-MR', {
-      style: 'currency',
-      currency: 'MRU',
-      minimumFractionDigits: 0
-    }).format(price);
+  const getCityName = (code: string) => {
+    const cities: { [key: string]: string } = {
+      'NKC': 'Nouakchott',
+      'CDG': 'Paris',
+      'IST': 'Istanbul',
+      'DXB': 'Dubai',
+      'CMN': 'Casablanca',
+      'LHR': 'London',
+      'JFK': 'New York',
+      'DOH': 'Doha',
+      'CAI': 'Cairo',
+      'DKR': 'Dakar'
+    };
+    return cities[code] || code;
   };
 
   return (
@@ -70,11 +79,23 @@ const FlightSearch = () => {
       
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="mb-8">
+          <Button 
+            variant="outline" 
+            onClick={() => navigate("/")}
+            className="mb-4"
+          >
+            ← Back to Search
+          </Button>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Available Flights</h1>
           {searchData && (
-            <p className="text-gray-600">
-              {searchData.from} → {searchData.to} • {searchData.passengers} passenger(s)
-            </p>
+            <div className="flex flex-wrap gap-4 text-gray-600">
+              <p>{getCityName(searchData.from)} → {getCityName(searchData.to)}</p>
+              <p>• {searchData.passengers} passenger(s)</p>
+              <p>• {searchData.tripType === 'one-way' ? 'One Way' : 'Round Trip'}</p>
+              {searchData.departDate && (
+                <p>• {format(new Date(searchData.departDate), "PPP")}</p>
+              )}
+            </div>
           )}
         </div>
 
