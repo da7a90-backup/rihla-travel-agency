@@ -116,16 +116,16 @@ const BookingForm = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Base Price</span>
-                    <span>₦{flight.price.toLocaleString()}</span>
+                    <span>MRU {flight.price.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Taxes & Fees</span>
-                    <span>₦{Math.round(flight.price * 0.15).toLocaleString()}</span>
+                    <span>MRU {Math.round(flight.price * 0.15).toLocaleString()}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between font-bold text-lg">
                     <span>Total</span>
-                    <span className="text-blue-600">₦{Math.round(flight.price * 1.15).toLocaleString()}</span>
+                    <span className="text-blue-600">MRU {Math.round(flight.price * 1.15).toLocaleString()}</span>
                   </div>
                 </div>
 

@@ -175,7 +175,7 @@ const AdminDashboard = () => {
                     <div>
                       <p className="text-sm text-gray-600">Total Revenue</p>
                       <p className="text-2xl font-bold text-blue-600">
-                        ₦{bookings.reduce((sum, b) => sum + b.totalAmount, 0).toLocaleString()}
+                        MRU {bookings.reduce((sum, b) => sum + b.totalAmount, 0).toLocaleString()}
                       </p>
                     </div>
                     <Plane className="h-8 w-8 text-blue-600" />
@@ -229,7 +229,7 @@ const AdminDashboard = () => {
                       <div>
                         <Label className="text-sm font-medium text-gray-500">Amount</Label>
                         <p className="font-medium text-lg text-blue-600">
-                          ₦{booking.totalAmount.toLocaleString()}
+                          MRU {booking.totalAmount.toLocaleString()}
                         </p>
                       </div>
                     </div>
@@ -302,7 +302,7 @@ const AdminDashboard = () => {
                 </div>
                 <div>
                   <Label htmlFor="currency">Display Currency</Label>
-                  <Input id="currency" value="Mauritanian Ouguiya (₦)" disabled className="w-64" />
+                  <Input id="currency" value="Mauritanian Ouguiya (MRU)" disabled className="w-64" />
                 </div>
               </CardContent>
             </Card>
