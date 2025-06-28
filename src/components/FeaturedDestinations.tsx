@@ -8,28 +8,28 @@ const destinations = [
     country: "France",
     image: "https://images.unsplash.com/photo-1502602898536-47ad22581b52?w=400&h=300&fit=crop",
     duration: "7h 30m",
-    price: "₦450,000"
+    price: "MRU 450,000"
   },
   {
     name: "Dubai", 
     country: "UAE",
     image: "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&h=300&fit=crop",
     duration: "5h 45m",
-    price: "₦350,000"
+    price: "MRU 350,000"
   },
   {
     name: "Istanbul",
     country: "Turkey", 
     image: "https://images.unsplash.com/photo-1541432901042-2d8bd64b4a9b?w=400&h=300&fit=crop",
     duration: "6h 15m",
-    price: "₦380,000"
+    price: "MRU 380,000"
   },
   {
     name: "Casablanca",
     country: "Morocco",
     image: "https://images.unsplash.com/photo-1539650116574-75c0c6d73f6e?w=400&h=300&fit=crop",
     duration: "2h 30m", 
-    price: "₦180,000"
+    price: "MRU 180,000"
   }
 ];
 
