@@ -20,7 +20,7 @@ const Hero = () => {
             </span>
           </h1>
           <p className="text-xl md:text-2xl mb-12 text-blue-100 max-w-3xl mx-auto leading-relaxed">
-            Discover amazing destinations with Rihla Travel. Book your flights with confidence and explore the world with our premium travel services.
+            Discover amazing destinations with Presta Travel. Book your flights with confidence and explore the world with our premium travel services.
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mt-16">

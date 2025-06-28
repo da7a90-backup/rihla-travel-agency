@@ -1,4 +1,4 @@
-
+// Updated src/pages/Index.tsx with sequential round-trip selection
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Users, Plane } from "lucide-react";
+import { Users, Plane, ArrowRight } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import Hero from "@/components/Hero";
 import FeaturedDestinations from "@/components/FeaturedDestinations";
@@ -16,34 +16,63 @@ import CalendarFlightView from "@/components/CalendarFlightView";
 
 const Index = () => {
   const navigate = useNavigate();
-  const [step, setStep] = useState<'search' | 'calendar'>('search');
+  const [step, setStep] = useState<'search' | 'outbound-calendar' | 'return-calendar'>('search');
   const [searchData, setSearchData] = useState({
     from: "",
     to: "",
     passengers: 1,
     tripType: "round-trip"
   });
+  const [selectedOutboundDate, setSelectedOutboundDate] = useState<Date | null>(null);
+  const [selectedReturnDate, setSelectedReturnDate] = useState<Date | null>(null);
 
   const handleSearch = () => {
     if (!searchData.from || !searchData.to) {
       alert("Please select both departure and destination cities");
       return;
     }
-    setStep('calendar');
+    setStep('outbound-calendar');
   };
 
-  const handleDateSelect = (date: Date) => {
-    console.log("Selected date:", date);
+  const handleOutboundDateSelect = (date: Date) => {
+    setSelectedOutboundDate(date);
+    
+    if (searchData.tripType === 'one-way') {
+      // Go directly to flight search for one-way
+      navigate("/search", { 
+        state: { 
+          ...searchData, 
+          departDate: date 
+        } 
+      });
+    } else {
+      // Show return calendar for round-trip
+      setStep('return-calendar');
+    }
+  };
+
+  const handleReturnDateSelect = (date: Date) => {
+    setSelectedReturnDate(date);
+    
+    // Navigate to flight search with both dates
     navigate("/search", { 
       state: { 
         ...searchData, 
-        departDate: date 
+        departDate: selectedOutboundDate,
+        returnDate: date
       } 
     });
   };
 
   const handleBackToSearch = () => {
     setStep('search');
+    setSelectedOutboundDate(null);
+    setSelectedReturnDate(null);
+  };
+
+  const handleBackToOutbound = () => {
+    setStep('outbound-calendar');
+    setSelectedReturnDate(null);
   };
 
   return (
@@ -54,15 +83,50 @@ const Index = () => {
       {/* Search Section */}
       <section className={`py-12 px-4 ${step === 'search' ? '-mt-20 relative z-10' : 'pt-24'}`}>
         <div className="max-w-6xl mx-auto">
-          {step === 'calendar' && (
+          {step !== 'search' && (
             <div className="mb-6">
               <Button 
                 variant="outline" 
-                onClick={handleBackToSearch}
+                onClick={step === 'return-calendar' ? handleBackToOutbound : handleBackToSearch}
                 className="mb-4"
               >
-                ← Back to Search
+                ← {step === 'return-calendar' ? 'Back to Outbound' : 'Back to Search'}
               </Button>
+              
+              {/* Progress indicator for round-trip */}
+              {searchData.tripType === 'round-trip' && (
+                <div className="flex items-center gap-4 mb-6">
+                  <div className={`flex items-center gap-2 ${step === 'outbound-calendar' ? 'text-blue-600' : 'text-green-600'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      step === 'outbound-calendar' ? 'bg-blue-100' : 'bg-green-100'
+                    }`}>
+                      {selectedOutboundDate ? '✓' : '1'}
+                    </div>
+                    <span>Outbound Flight</span>
+                    {selectedOutboundDate && (
+                      <span className="text-sm text-gray-500">
+                        ({selectedOutboundDate.toLocaleDateString()})
+                      </span>
+                    )}
+                  </div>
+                  
+                  <ArrowRight className="h-4 w-4 text-gray-400" />
+                  
+                  <div className={`flex items-center gap-2 ${step === 'return-calendar' ? 'text-blue-600' : 'text-gray-400'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      step === 'return-calendar' ? 'bg-blue-100' : 'bg-gray-100'
+                    }`}>
+                      {selectedReturnDate ? '✓' : '2'}
+                    </div>
+                    <span>Return Flight</span>
+                    {selectedReturnDate && (
+                      <span className="text-sm text-gray-500">
+                        ({selectedReturnDate.toLocaleDateString()})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -133,11 +197,36 @@ const Index = () => {
                 </div>
               </CardContent>
             </Card>
+          ) : step === 'outbound-calendar' ? (
+            <div>
+              <div className="mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Outbound Flight Date</h2>
+                <p className="text-gray-600">
+                  {searchData.from} → {searchData.to} • {searchData.passengers} passenger(s)
+                </p>
+              </div>
+              <CalendarFlightView 
+                searchData={searchData}
+                onDateSelect={handleOutboundDateSelect}
+              />
+            </div>
           ) : (
-            <CalendarFlightView 
-              searchData={searchData}
-              onDateSelect={handleDateSelect}
-            />
+            <div>
+              <div className="mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Return Flight Date</h2>
+                <p className="text-gray-600">
+                  {searchData.to} → {searchData.from} • {searchData.passengers} passenger(s)
+                </p>
+              </div>
+              <CalendarFlightView 
+                searchData={{
+                  ...searchData,
+                  from: searchData.to,  // Reverse the route for return
+                  to: searchData.from
+                }}
+                onDateSelect={handleReturnDateSelect}
+              />
+            </div>
           )}
         </div>
       </section>

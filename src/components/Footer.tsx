@@ -12,7 +12,7 @@ const Footer = () => {
               <div className="bg-gradient-to-r from-blue-600 to-sky-600 p-2 rounded-lg">
                 <Plane className="h-6 w-6 text-white" />
               </div>
-              <span className="text-2xl font-bold">Rihla Travel</span>
+              <span className="text-2xl font-bold">Presta Travel</span>
             </Link>
             <p className="text-gray-400 mb-6 max-w-md">
               Your trusted travel partner in Mauritania. We provide premium flight booking services 
@@ -53,7 +53,7 @@ const Footer = () => {
 
         <div className="border-t border-gray-800 mt-12 pt-8 text-center">
           <p className="text-gray-400">
-            © 2024 Rihla Travel. All rights reserved. | Prices displayed in Mauritanian Ouguiya (MRU)
+            © 2024 Presta Travel. All rights reserved. | Prices displayed in Mauritanian Ouguiya (MRU)
           </p>
         </div>
       </div>

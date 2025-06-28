@@ -1,4 +1,4 @@
-
+// Update src/App.tsx - add the tracking route
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import FlightSearch from "./pages/FlightSearch";
 import BookingForm from "./pages/BookingForm";
 import AdminDashboard from "./pages/AdminDashboard";
+import BookingTracker from "./pages/BookingTracker"; // NEW
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
           <Route path="/search" element={<FlightSearch />} />
           <Route path="/booking" element={<BookingForm />} />
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/track/:trackingToken" element={<BookingTracker />} /> {/* NEW ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

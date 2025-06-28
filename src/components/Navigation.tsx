@@ -13,7 +13,7 @@ const Navigation = () => {
               <Plane className="h-6 w-6 text-white" />
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-sky-600 bg-clip-text text-transparent">
-              Rihla Travel
+              Presta Travel
             </span>
           </Link>
           
