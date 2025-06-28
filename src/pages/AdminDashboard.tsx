@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,9 +14,11 @@ import {
   Clock, 
   AlertCircle,
   Download,
-  Send
+  Send,
+  Ticket
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import TicketGenerator from "@/components/TicketGenerator";
 
 // Mock booking data - In real app, this would come from Supabase
 const mockBookings = [
@@ -69,6 +70,8 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const [bookings, setBookings] = useState(mockBookings);
   const [selectedBooking, setSelectedBooking] = useState<string | null>(null);
+  const [showTicketGenerator, setShowTicketGenerator] = useState(false);
+  const [ticketData, setTicketData] = useState<any>(null);
 
   const handleStatusUpdate = (bookingId: string, newStatus: string) => {
     setBookings(prev => prev.map(booking => 
@@ -83,17 +86,71 @@ const AdminDashboard = () => {
     });
   };
 
-  const handleTicketIssue = (bookingId: string) => {
-    // Simulate ticket generation and email sending
-    setBookings(prev => prev.map(booking => 
-      booking.id === bookingId 
-        ? { ...booking, ticketPdf: `ticket_${bookingId}.pdf` }
-        : booking
-    ));
+  const handleValidatePayment = (bookingId: string) => {
+    const booking = bookings.find(b => b.id === bookingId);
+    if (!booking) return;
 
+    // Update booking status to validated
+    handleStatusUpdate(bookingId, "payment_validated");
+
+    // Prepare ticket data
+    const ticketInfo = {
+      ticketNumber: `TK-${Date.now()}`,
+      pnr: `${booking.id.replace('BK', 'PNR')}`,
+      passenger: booking.passenger,
+      flight: {
+        airline: booking.flight.airline,
+        flightNumber: booking.flight.flightNumber,
+        aircraft: "Boeing 737-800", // This would come from Amadeus API
+        departure: {
+          airport: booking.flight.route.split(' → ')[0],
+          city: booking.flight.route.split(' → ')[0],
+          date: booking.flight.date,
+          time: booking.flight.time,
+          terminal: "1"
+        },
+        arrival: {
+          airport: booking.flight.route.split(' → ')[1],
+          city: booking.flight.route.split(' → ')[1],
+          date: booking.flight.date,
+          time: "16:45", // This would be calculated
+        },
+        duration: "7h 15m",
+        class: "Economy",
+        seatNumber: `${Math.floor(Math.random() * 30) + 1}A`
+      },
+      booking: {
+        totalAmount: booking.totalAmount,
+        currency: "MRU",
+        bookingReference: booking.id,
+        issueDate: new Date().toISOString()
+      }
+    };
+
+    setTicketData(ticketInfo);
+    setShowTicketGenerator(true);
+  };
+
+  const handleTicketGenerated = (pdfUrl: string) => {
+    if (ticketData) {
+      const bookingId = ticketData.booking.bookingReference;
+      setBookings(prev => prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, ticketPdf: pdfUrl, status: "ticketed" }
+          : booking
+      ));
+
+      toast({
+        title: "Ticket Generated",
+        description: "E-ticket has been generated successfully",
+      });
+    }
+  };
+
+  const handleEmailSent = () => {
     toast({
-      title: "Ticket Issued",
-      description: `E-ticket generated and sent to passenger for booking ${bookingId}`,
+      title: "Email Sent",
+      description: "Ticket has been sent to passenger's email",
     });
   };
 
@@ -102,6 +159,8 @@ const AdminDashboard = () => {
       case "pending": return "bg-yellow-100 text-yellow-800";
       case "confirmed": return "bg-green-100 text-green-800";
       case "cancelled": return "bg-red-100 text-red-800";
+      case "payment_validated": return "bg-purple-100 text-purple-800";
+      case "ticketed": return "bg-blue-100 text-blue-800";
       default: return "bg-gray-100 text-gray-800";
     }
   };
@@ -111,9 +170,39 @@ const AdminDashboard = () => {
       case "pending": return <Clock className="h-4 w-4" />;
       case "confirmed": return <CheckCircle className="h-4 w-4" />;
       case "cancelled": return <AlertCircle className="h-4 w-4" />;
+      case "payment_validated": return <CheckCircle className="h-4 w-4" />;
+      case "ticketed": return <Ticket className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
     }
   };
+
+  if (showTicketGenerator && ticketData) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            <div className="flex items-center justify-between">
+              <h1 className="text-3xl font-bold text-gray-900">Ticket Generator</h1>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowTicketGenerator(false)}
+              >
+                ← Back to Dashboard
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <TicketGenerator
+            ticketData={ticketData}
+            onTicketGenerated={handleTicketGenerated}
+            onEmailSent={handleEmailSent}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -194,7 +283,7 @@ const AdminDashboard = () => {
                       </CardTitle>
                       <Badge className={getStatusColor(booking.status)}>
                         {getStatusIcon(booking.status)}
-                        <span className="ml-1 capitalize">{booking.status}</span>
+                        <span className="ml-1 capitalize">{booking.status.replace('_', ' ')}</span>
                       </Badge>
                     </div>
                   </CardHeader>
@@ -238,22 +327,22 @@ const AdminDashboard = () => {
                       {booking.status === "pending" && (
                         <Button
                           size="sm"
-                          onClick={() => handleStatusUpdate(booking.id, "confirmed")}
+                          onClick={() => handleValidatePayment(booking.id)}
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <CheckCircle className="h-4 w-4 mr-1" />
-                          Confirm Payment
+                          Validate Payment & Issue Ticket
                         </Button>
                       )}
                       
-                      {booking.status === "confirmed" && !booking.ticketPdf && (
+                      {booking.status === "confirmed" && (
                         <Button
                           size="sm"
-                          onClick={() => handleTicketIssue(booking.id)}
+                          onClick={() => handleValidatePayment(booking.id)}
                           className="bg-blue-600 hover:bg-blue-700"
                         >
-                          <Send className="h-4 w-4 mr-1" />
-                          Issue Ticket
+                          <Ticket className="h-4 w-4 mr-1" />
+                          Generate Ticket
                         </Button>
                       )}
 

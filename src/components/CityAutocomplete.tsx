@@ -5,20 +5,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { MapPin, Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { amadeusApi } from "@/services/amadeusApi";
 
-// Mock city data - In real app, this would come from an API
-const cities = [
-  { code: "NKC", name: "Nouakchott", country: "Mauritania" },
-  { code: "CDG", name: "Paris", country: "France" },
-  { code: "IST", name: "Istanbul", country: "Turkey" },
-  { code: "DXB", name: "Dubai", country: "UAE" },
-  { code: "CMN", name: "Casablanca", country: "Morocco" },
-  { code: "LHR", name: "London", country: "United Kingdom" },
-  { code: "JFK", name: "New York", country: "United States" },
-  { code: "DOH", name: "Doha", country: "Qatar" },
-  { code: "CAI", name: "Cairo", country: "Egypt" },
-  { code: "DKR", name: "Dakar", country: "Senegal" }
-];
+interface Location {
+  iataCode: string;
+  name: string;
+  address: {
+    cityName: string;
+    countryName: string;
+  };
+  subType: string;
+}
 
 interface CityAutocompleteProps {
   value: string;
@@ -29,14 +26,54 @@ interface CityAutocompleteProps {
 const CityAutocomplete = ({ value, onChange, placeholder }: CityAutocompleteProps) => {
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const filteredCities = cities.filter(city =>
-    city.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-    city.code.toLowerCase().includes(searchValue.toLowerCase()) ||
-    city.country.toLowerCase().includes(searchValue.toLowerCase())
-  );
+  // Fallback cities for when API is not available
+  const fallbackCities = [
+    { iataCode: "NKC", name: "Nouakchott", address: { cityName: "Nouakchott", countryName: "Mauritania" } },
+    { iataCode: "CDG", name: "Paris Charles de Gaulle", address: { cityName: "Paris", countryName: "France" } },
+    { iataCode: "IST", name: "Istanbul Airport", address: { cityName: "Istanbul", countryName: "Turkey" } },
+    { iataCode: "DXB", name: "Dubai International", address: { cityName: "Dubai", countryName: "UAE" } },
+    { iataCode: "CMN", name: "Casablanca Mohammed V", address: { cityName: "Casablanca", countryName: "Morocco" } },
+    { iataCode: "LHR", name: "London Heathrow", address: { cityName: "London", countryName: "United Kingdom" } },
+    { iataCode: "JFK", name: "John F. Kennedy International", address: { cityName: "New York", countryName: "United States" } },
+    { iataCode: "DOH", name: "Hamad International", address: { cityName: "Doha", countryName: "Qatar" } },
+    { iataCode: "CAI", name: "Cairo International", address: { cityName: "Cairo", countryName: "Egypt" } },
+    { iataCode: "DKR", name: "Blaise Diagne International", address: { cityName: "Dakar", countryName: "Senegal" } }
+  ];
 
-  const selectedCity = cities.find(city => city.code === value);
+  useEffect(() => {
+    const searchLocations = async () => {
+      if (searchValue.length < 2) {
+        setLocations(fallbackCities);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const results = await amadeusApi.searchAirports(searchValue);
+        setLocations(results.length > 0 ? results : fallbackCities);
+      } catch (error) {
+        console.error('Airport search error:', error);
+        // Filter fallback cities based on search
+        const filtered = fallbackCities.filter(city =>
+          city.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+          city.iataCode.toLowerCase().includes(searchValue.toLowerCase()) ||
+          city.address.cityName.toLowerCase().includes(searchValue.toLowerCase()) ||
+          city.address.countryName.toLowerCase().includes(searchValue.toLowerCase())
+        );
+        setLocations(filtered);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchLocations, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchValue]);
+
+  const selectedLocation = locations.find(location => location.iataCode === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -49,8 +86,8 @@ const CityAutocomplete = ({ value, onChange, placeholder }: CityAutocompleteProp
         >
           <div className="flex items-center">
             <MapPin className="mr-2 h-5 w-5 text-blue-600" />
-            {selectedCity ? (
-              <span>{selectedCity.name}, {selectedCity.country}</span>
+            {selectedLocation ? (
+              <span>{selectedLocation.address.cityName}, {selectedLocation.address.countryName}</span>
             ) : (
               <span className="text-gray-500">{placeholder}</span>
             )}
@@ -61,31 +98,35 @@ const CityAutocomplete = ({ value, onChange, placeholder }: CityAutocompleteProp
       <PopoverContent className="w-full p-0" align="start">
         <Command>
           <CommandInput 
-            placeholder="Search cities..." 
+            placeholder="Search cities and airports..." 
             value={searchValue}
             onValueChange={setSearchValue}
           />
           <CommandList>
-            <CommandEmpty>No city found.</CommandEmpty>
+            <CommandEmpty>
+              {loading ? "Searching..." : "No location found."}
+            </CommandEmpty>
             <CommandGroup>
-              {filteredCities.map((city) => (
+              {locations.map((location) => (
                 <CommandItem
-                  key={city.code}
-                  value={city.code}
+                  key={location.iataCode}
+                  value={location.iataCode}
                   onSelect={() => {
-                    onChange(city.code);
+                    onChange(location.iataCode);
                     setOpen(false);
                   }}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === city.code ? "opacity-100" : "opacity-0"
+                      value === location.iataCode ? "opacity-100" : "opacity-0"
                     )}
                   />
                   <div>
-                    <p className="font-medium">{city.name}</p>
-                    <p className="text-sm text-gray-500">{city.country} ({city.code})</p>
+                    <p className="font-medium">{location.address.cityName}</p>
+                    <p className="text-sm text-gray-500">
+                      {location.name} - {location.address.countryName} ({location.iataCode})
+                    </p>
                   </div>
                 </CommandItem>
               ))}
