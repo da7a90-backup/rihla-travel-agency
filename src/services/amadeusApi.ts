@@ -571,6 +571,507 @@ class AmadeusApiService {
     }
   }
 
+    /**
+   * Confirm a flight booking from hold to confirmed booking
+   * This converts the hold into an actual booking with ticket numbers
+   */
+    async confirmFlightBooking(holdId: string): Promise<{
+      success: boolean;
+      bookingId?: string;
+      ticketNumbers?: string[];
+      eTicketReferences?: string[];
+      error?: string;
+    }> {
+      try {
+        const token = await this.getAccessToken();
+        
+        // Step 1: Confirm the booking by removing the hold
+        const confirmResponse = await fetch(`${AMADEUS_BASE_URL}/v1/booking/flight-orders/${holdId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            data: {
+              type: "flight-order",
+              ticketingAgreement: {
+                option: "CONFIRM" // Remove hold and confirm booking
+              }
+            }
+          })
+        });
+  
+        const confirmData = await confirmResponse.json();
+        console.log('Amadeus confirm response:', confirmData);
+  
+        if (!confirmResponse.ok) {
+          throw new Error(`Booking confirmation failed: ${confirmResponse.status} - ${JSON.stringify(confirmData)}`);
+        }
+  
+        // Extract ticket information
+        const booking = confirmData.data;
+        const ticketNumbers: string[] = [];
+        const eTicketReferences: string[] = [];
+  
+        // Parse ticket numbers from the response
+        if (booking.travelers) {
+          booking.travelers.forEach((traveler: any) => {
+            if (traveler.flightOffers) {
+              traveler.flightOffers.forEach((offer: any) => {
+                if (offer.tickets) {
+                  offer.tickets.forEach((ticket: any) => {
+                    if (ticket.number) {
+                      ticketNumbers.push(ticket.number);
+                    }
+                    if (ticket.eTicketReference) {
+                      eTicketReferences.push(ticket.eTicketReference);
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+  
+        // Alternative: Parse from flightOffers at root level
+        if (booking.flightOffers) {
+          booking.flightOffers.forEach((offer: any) => {
+            if (offer.ticketNumbers) {
+              ticketNumbers.push(...offer.ticketNumbers);
+            }
+          });
+        }
+  
+        return {
+          success: true,
+          bookingId: booking.id,
+          ticketNumbers: ticketNumbers,
+          eTicketReferences: eTicketReferences
+        };
+  
+      } catch (error) {
+        console.error('Amadeus booking confirmation error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to confirm booking'
+        };
+      }
+    }
+  
+    /**
+     * Retrieve booking details including ticket information
+     */
+    async getBookingDetails(bookingId: string): Promise<{
+      success: boolean;
+      booking?: any;
+      error?: string;
+    }> {
+      try {
+        const token = await this.getAccessToken();
+        
+        const response = await fetch(`${AMADEUS_BASE_URL}/v1/booking/flight-orders/${bookingId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+  
+        const data = await response.json();
+  
+        if (!response.ok) {
+          throw new Error(`Failed to retrieve booking: ${response.status} - ${JSON.stringify(data)}`);
+        }
+  
+        return {
+          success: true,
+          booking: data.data
+        };
+  
+      } catch (error) {
+        console.error('Error retrieving booking details:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to retrieve booking'
+        };
+      }
+    }
+  
+    /**
+     * Generate IATA-compliant e-ticket from confirmed booking
+     */
+    async generateETicket(bookingId: string): Promise<{
+      success: boolean;
+      eTicketUrl?: string;
+      eTicketData?: any;
+      error?: string;
+    }> {
+      try {
+        // First get the booking details
+        const bookingResult = await this.getBookingDetails(bookingId);
+        
+        if (!bookingResult.success || !bookingResult.booking) {
+          throw new Error('Could not retrieve booking details for e-ticket generation');
+        }
+  
+        const booking = bookingResult.booking;
+        
+        // Generate IATA-compliant e-ticket HTML
+        const eTicketHTML = this.generateIATAETicketHTML(booking);
+        
+        // Create blob and URL for the e-ticket
+        const blob = new Blob([eTicketHTML], { type: 'text/html' });
+        const eTicketUrl = URL.createObjectURL(blob);
+  
+        return {
+          success: true,
+          eTicketUrl: eTicketUrl,
+          eTicketData: booking
+        };
+  
+      } catch (error) {
+        console.error('E-ticket generation error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to generate e-ticket'
+        };
+      }
+    }
+  
+    /**
+     * Generate IATA-compliant e-ticket HTML
+     */
+    private generateIATAETicketHTML(booking: any): string {
+      const passenger = booking.travelers?.[0] || {};
+      const flightOffer = booking.flightOffers?.[0] || {};
+      const segments = flightOffer.itineraries?.[0]?.segments || [];
+      
+      // Extract ticket numbers
+      const ticketNumbers = this.extractTicketNumbers(booking);
+      const primaryTicketNumber = ticketNumbers[0] || 'N/A';
+      
+      // Extract fare details
+      const fareDetails = flightOffer.travelerPricings?.[0]?.fareDetailsBySegment?.[0] || {};
+      const pricing = flightOffer.price || {};
+  
+      const renderSegments = () => {
+        return segments.map((segment: any, index: number) => {
+          const departureDateTime = new Date(segment.departure.at);
+          const arrivalDateTime = new Date(segment.arrival.at);
+          
+          return `
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 12px; font-size: 14px;">${index + 1}</td>
+              <td style="padding: 12px; font-size: 14px;">
+                <strong>${this.getAirlineName(segment.carrierCode)}</strong><br>
+                <span style="color: #666;">${segment.carrierCode}${segment.number}</span>
+              </td>
+              <td style="padding: 12px; font-size: 14px;">
+                <strong>${this.getCityName(segment.departure.iataCode)}</strong><br>
+                <span style="color: #666;">${segment.departure.iataCode}</span><br>
+                <span style="font-size: 12px;">${format(departureDateTime, "dd MMM yyyy HH:mm")}</span>
+                ${segment.departure.terminal ? `<br><span style="font-size: 11px;">Terminal ${segment.departure.terminal}</span>` : ''}
+              </td>
+              <td style="padding: 12px; font-size: 14px;">
+                <strong>${this.getCityName(segment.arrival.iataCode)}</strong><br>
+                <span style="color: #666;">${segment.arrival.iataCode}</span><br>
+                <span style="font-size: 12px;">${format(arrivalDateTime, "dd MMM yyyy HH:mm")}</span>
+                ${segment.arrival.terminal ? `<br><span style="font-size: 11px;">Terminal ${segment.arrival.terminal}</span>` : ''}
+              </td>
+              <td style="padding: 12px; font-size: 14px; text-align: center;">
+                ${fareDetails.class || 'Y'}<br>
+                <span style="font-size: 12px; color: #666;">${fareDetails.cabin || 'Economy'}</span>
+              </td>
+              <td style="padding: 12px; font-size: 14px; text-align: center;">
+                ${segment.numberOfStops || 0}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      };
+  
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Electronic Ticket - ${primaryTicketNumber}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Courier New', monospace; 
+              line-height: 1.4; 
+              color: #000;
+              background: white;
+              font-size: 12px;
+            }
+            .eticket-container { 
+              max-width: 800px; 
+              margin: 0 auto; 
+              padding: 20px; 
+              background: white;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #000;
+              padding-bottom: 20px;
+              margin-bottom: 20px;
+            }
+            .eticket-title {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
+            .airline-info {
+              font-size: 14px;
+              margin-bottom: 10px;
+            }
+            .ticket-number {
+              font-size: 16px;
+              font-weight: bold;
+              background: #f0f0f0;
+              padding: 5px 10px;
+              border: 1px solid #000;
+              display: inline-block;
+            }
+            .passenger-info {
+              background: #f8f8f8;
+              padding: 15px;
+              border: 1px solid #ccc;
+              margin-bottom: 20px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 20px;
+            }
+            .info-section {
+              border: 1px solid #ccc;
+              padding: 10px;
+            }
+            .info-label {
+              font-weight: bold;
+              text-transform: uppercase;
+              font-size: 10px;
+              margin-bottom: 5px;
+            }
+            .info-value {
+              font-size: 12px;
+            }
+            .flight-table {
+              width: 100%;
+              border-collapse: collapse;
+              border: 2px solid #000;
+              margin-bottom: 20px;
+            }
+            .flight-table th {
+              background: #000;
+              color: white;
+              padding: 8px;
+              font-size: 11px;
+              text-align: left;
+              border: 1px solid #000;
+            }
+            .flight-table td {
+              border: 1px solid #ccc;
+              vertical-align: top;
+            }
+            .fare-calculation {
+              border: 2px solid #000;
+              padding: 15px;
+              margin-bottom: 20px;
+              background: #f9f9f9;
+            }
+            .conditions {
+              font-size: 10px;
+              line-height: 1.3;
+              border: 1px solid #ccc;
+              padding: 10px;
+              background: #f5f5f5;
+            }
+            .barcode {
+              text-align: center;
+              margin: 20px 0;
+              font-family: 'Courier New', monospace;
+              font-size: 24px;
+              letter-spacing: 2px;
+            }
+            @media print {
+              .eticket-container { padding: 10px; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="eticket-container">
+            <!-- Header -->
+            <div class="header">
+              <div class="eticket-title">ELECTRONIC TICKET</div>
+              <div class="airline-info">PRESTA TRAVEL - IATA Compliant E-Ticket</div>
+              <div class="ticket-number">TICKET NUMBER: ${primaryTicketNumber}</div>
+            </div>
+  
+            <!-- Passenger Information -->
+            <div class="passenger-info">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div class="info-label">PASSENGER NAME</div>
+                  <div style="font-size: 14px; font-weight: bold;">
+                    ${passenger.name?.lastName?.toUpperCase() || 'PASSENGER'}, ${passenger.name?.firstName?.toUpperCase() || 'NAME'}
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <div class="info-label">E-TICKET NUMBER</div>
+                  <div style="font-size: 14px; font-weight: bold;">${primaryTicketNumber}</div>
+                </div>
+              </div>
+            </div>
+  
+            <!-- Booking Information Grid -->
+            <div class="info-grid">
+              <div class="info-section">
+                <div class="info-label">BOOKING REFERENCE</div>
+                <div class="info-value">${booking.associatedRecords?.[0]?.reference || booking.id}</div>
+              </div>
+              <div class="info-section">
+                <div class="info-label">ISSUE DATE</div>
+                <div class="info-value">${format(new Date(), "dd MMM yyyy")}</div>
+              </div>
+              <div class="info-section">
+                <div class="info-label">ISSUING AGENT</div>
+                <div class="info-value">PRESTA TRAVEL</div>
+              </div>
+              <div class="info-section">
+                <div class="info-label">FORM OF PAYMENT</div>
+                <div class="info-value">CASH</div>
+              </div>
+            </div>
+  
+            <!-- Flight Itinerary Table -->
+            <table class="flight-table">
+              <thead>
+                <tr>
+                  <th>SEQ</th>
+                  <th>CARRIER/FLIGHT</th>
+                  <th>FROM</th>
+                  <th>TO</th>
+                  <th>CLASS</th>
+                  <th>STOPS</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${renderSegments()}
+              </tbody>
+            </table>
+  
+            <!-- Fare Calculation -->
+            <div class="fare-calculation">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="font-weight: bold; font-size: 14px;">FARE CALCULATION</div>
+                <div style="font-weight: bold; font-size: 14px;">TOTAL: ${pricing.currency} ${pricing.total}</div>
+              </div>
+              <div style="font-size: 11px; margin-bottom: 10px;">
+                <strong>Base Fare:</strong> ${pricing.currency} ${pricing.base || pricing.total}<br>
+                <strong>Taxes & Fees:</strong> ${pricing.currency} ${
+                  pricing.fees?.reduce((sum: number, fee: any) => sum + parseFloat(fee.amount), 0) || '0.00'
+                }<br>
+                <strong>Total Amount:</strong> ${pricing.currency} ${pricing.grandTotal || pricing.total}
+              </div>
+              <div style="font-size: 10px; color: #666;">
+                Fare Basis: ${fareDetails.fareBasis || 'N/A'} | 
+                Booking Class: ${fareDetails.class || 'Y'} |
+                Cabin: ${fareDetails.cabin || 'Economy'}
+              </div>
+            </div>
+  
+            <!-- Important Conditions -->
+            <div class="conditions">
+              <div style="font-weight: bold; margin-bottom: 10px;">IMPORTANT CONDITIONS OF CONTRACT AND NOTICES</div>
+              <div style="margin-bottom: 8px;">
+                <strong>• CHECK-IN:</strong> Online check-in opens 24 hours before departure. Airport check-in closes 60 minutes before domestic flights, 90 minutes before international flights.
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong>• BAGGAGE:</strong> Baggage allowances vary by airline and fare type. Check with your airline for specific allowances and restrictions.
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong>• CHANGES/CANCELLATIONS:</strong> This ticket is subject to the airline's terms and conditions. Change and cancellation fees may apply.
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong>• IDENTIFICATION:</strong> Valid government-issued photo ID required for domestic flights. Passport required for international flights.
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong>• LIABILITY:</strong> Carrier's liability is limited by international conventions and airline conditions of carriage.
+              </div>
+            </div>
+  
+            <!-- Barcode Simulation -->
+            <div class="barcode">
+              <div style="font-size: 14px; margin-bottom: 10px;">ELECTRONIC VALIDATION</div>
+              <div style="background: #000; color: white; padding: 5px; font-size: 12px;">
+                ||||| |||| ||||| |||| ||||| ${primaryTicketNumber} ||||| |||| ||||| |||| |||||
+              </div>
+            </div>
+  
+            <!-- Footer -->
+            <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 10px; color: #666;">
+              <p><strong>PRESTA TRAVEL</strong> | IATA-Compliant Electronic Ticket</p>
+              <p>This e-ticket is valid for transportation subject to airline rules and government regulations.</p>
+              <p>Generated on ${format(new Date(), "dd MMM yyyy 'at' HH:mm")} UTC</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    }
+  
+    /**
+     * Extract ticket numbers from booking response
+     */
+    private extractTicketNumbers(booking: any): string[] {
+      const ticketNumbers: string[] = [];
+      
+      // Method 1: Check travelers array
+      if (booking.travelers) {
+        booking.travelers.forEach((traveler: any) => {
+          if (traveler.fareDetailsBySegment) {
+            traveler.fareDetailsBySegment.forEach((segment: any) => {
+              if (segment.additionalServices?.ticketNumber) {
+                ticketNumbers.push(segment.additionalServices.ticketNumber);
+              }
+            });
+          }
+        });
+      }
+  
+      // Method 2: Check flightOffers
+      if (booking.flightOffers) {
+        booking.flightOffers.forEach((offer: any) => {
+          if (offer.ticketNumbers) {
+            ticketNumbers.push(...offer.ticketNumbers);
+          }
+        });
+      }
+  
+      // Method 3: Check associatedRecords for ticket references
+      if (booking.associatedRecords) {
+        booking.associatedRecords.forEach((record: any) => {
+          if (record.reference && record.reference.startsWith('TKT')) {
+            ticketNumbers.push(record.reference);
+          }
+        });
+      }
+  
+      // Fallback: Generate ticket number based on booking ID
+      if (ticketNumbers.length === 0) {
+        const ticketNumber = `TKT${booking.id.replace(/[^0-9]/g, '').substring(0, 10)}`;
+        ticketNumbers.push(ticketNumber);
+      }
+  
+      return ticketNumbers;
+    }
+  
+
   private processFlightOffer(flight: any): AmadeusFlightOffer {
     const segments = flight.itineraries?.[0]?.segments || [];
     

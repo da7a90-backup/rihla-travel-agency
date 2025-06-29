@@ -1,4 +1,4 @@
-// Create src/pages/BookingTracker.tsx
+// Updated BookingTracker.tsx with better upload handling
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,8 @@ import {
   Mail,
   CreditCard,
   Download,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from "lucide-react";
 import { format } from "date-fns";
 import Navigation from "@/components/Navigation";
@@ -26,6 +27,7 @@ import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { amadeusApi } from "@/services/amadeusApi";
+import ReservationPDFGenerator from "@/components/ReservationPDFGenerator";
 
 interface Booking {
   id: string;
@@ -53,6 +55,99 @@ interface Booking {
   special_requests: string | null;
 }
 
+// Separate component for flight details to avoid hook order issues
+const FlightDetailsCard = ({ flightData, label }: { flightData: any, label: string }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!flightData) return null;
+
+  const segments = flightData.itineraries[0]?.segments || [];
+  if (!segments.length) return null;
+
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+  const totalStops = segments.length - 1;
+  
+  const departureTime = format(new Date(firstSegment.departure.at), "HH:mm");
+  const arrivalTime = format(new Date(lastSegment.arrival.at), "HH:mm");
+  const departureDate = format(new Date(firstSegment.departure.at), "MMM dd, yyyy");
+  const arrivalDate = format(new Date(lastSegment.arrival.at), "MMM dd, yyyy");
+  const airline = amadeusApi.getAirlineName(firstSegment.carrierCode);
+
+  return (
+    <div className="space-y-3">
+      <h4 className="font-medium text-gray-900 flex items-center gap-2">
+        <Plane className="h-4 w-4" />
+        {label}
+      </h4>
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="font-semibold">{airline}</p>
+            <p className="text-sm text-gray-500">{firstSegment.carrierCode}{firstSegment.number}</p>
+          </div>
+          <Badge variant="secondary">Economy</Badge>
+        </div>
+        
+        {/* Main Flight Summary */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <MapPin className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-medium">Departure</span>
+            </div>
+            <p className="font-bold text-lg">{departureTime}</p>
+            <p className="text-sm text-gray-600">{departureDate}</p>
+            <p className="text-sm">{amadeusApi.getCityName(firstSegment.departure.iataCode)} ({firstSegment.departure.iataCode})</p>
+          </div>
+          
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <MapPin className="h-4 w-4 text-red-600" />
+              <span className="text-sm font-medium">Arrival</span>
+            </div>
+            <p className="font-bold text-lg">{arrivalTime}</p>
+            <p className="text-sm text-gray-600">{arrivalDate}</p>
+            <p className="text-sm">{amadeusApi.getCityName(lastSegment.arrival.iataCode)} ({lastSegment.arrival.iataCode})</p>
+          </div>
+        </div>
+
+        {/* Connection Info */}
+        {totalStops > 0 && (
+          <div className="mt-4 pt-3 border-t">
+            <button 
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+            >
+              <span>{totalStops} stop{totalStops > 1 ? 's' : ''}</span>
+              <span className="text-xs">({expanded ? 'hide details' : 'show details'})</span>
+            </button>
+            
+            {expanded && (
+              <div className="mt-3 space-y-3">
+                {segments.map((segment, index) => (
+                  <div key={index} className="flex items-center gap-3 text-sm">
+                    <span className="text-gray-500">{index + 1}.</span>
+                    <div className="flex-1">
+                      <span className="font-medium">
+                        {amadeusApi.getCityName(segment.departure.iataCode)} → {amadeusApi.getCityName(segment.arrival.iataCode)}
+                      </span>
+                      <div className="text-gray-500">
+                        {format(new Date(segment.departure.at), "HH:mm")} - {format(new Date(segment.arrival.at), "HH:mm")} • 
+                        {amadeusApi.getAirlineName(segment.carrierCode)} {segment.carrierCode}{segment.number}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const BookingTracker = () => {
   const { trackingToken } = useParams();
   const location = useLocation();
@@ -62,6 +157,7 @@ const BookingTracker = () => {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Check if this is a new booking from the redirect
   const isNewBooking = location.state?.newBooking;
@@ -126,65 +222,131 @@ const BookingTracker = () => {
       }
 
       setSelectedFile(file);
+      setUploadError(null);
     }
+  };
+
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
   };
 
   const handleUploadScreenshot = async () => {
     if (!selectedFile || !booking) return;
 
     setUploading(true);
+    setUploadError(null);
+    
     try {
-      // Upload to Supabase Storage
       const fileExt = selectedFile.name.split('.').pop();
       const fileName = `${booking.booking_reference}_payment_${Date.now()}.${fileExt}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('payment-screenshots')
-        .upload(fileName, selectedFile);
+      // Method 1: Try Supabase Storage upload
+      try {
+        console.log('Attempting Supabase storage upload...');
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('payment-screenshots')
+          .upload(fileName, selectedFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
 
-      if (uploadError) {
-        throw uploadError;
-      }
+        if (uploadError) {
+          console.error('Supabase storage error:', uploadError);
+          throw uploadError;
+        }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('payment-screenshots')
-        .getPublicUrl(fileName);
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('payment-screenshots')
+          .getPublicUrl(fileName);
 
-      // Update booking with screenshot URL
-      const { error: updateError } = await (supabase as any)
-        .from('bookings')
-        .update({
+        console.log('Upload successful, public URL:', publicUrl);
+
+        // Update booking with screenshot URL
+        const { error: updateError } = await (supabase as any)
+          .from('bookings')
+          .update({
+            payment_screenshot_url: publicUrl,
+            payment_screenshot_uploaded_at: new Date().toISOString(),
+            status: 'payment_screenshot_uploaded'
+          })
+          .eq('id', booking.id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        // Update local state
+        setBooking(prev => prev ? {
+          ...prev,
           payment_screenshot_url: publicUrl,
           payment_screenshot_uploaded_at: new Date().toISOString(),
           status: 'payment_screenshot_uploaded'
-        })
-        .eq('id', booking.id);
+        } : null);
 
-      if (updateError) {
-        throw updateError;
+        setSelectedFile(null);
+        
+        toast({
+          title: "Screenshot Uploaded Successfully",
+          description: "Our team will review your payment and process your ticket.",
+        });
+
+      } catch (storageError) {
+        console.error('Storage upload failed, trying alternative method:', storageError);
+        
+        // Method 2: Convert to base64 and store in database
+        try {
+          const base64Data = await convertFileToBase64(selectedFile);
+          
+          // Store the base64 data directly in the booking record
+          const { error: updateError } = await (supabase as any)
+            .from('bookings')
+            .update({
+              payment_screenshot_url: base64Data, // Store base64 data
+              payment_screenshot_uploaded_at: new Date().toISOString(),
+              status: 'payment_screenshot_uploaded'
+            })
+            .eq('id', booking.id);
+
+          if (updateError) {
+            throw updateError;
+          }
+
+          // Update local state
+          setBooking(prev => prev ? {
+            ...prev,
+            payment_screenshot_url: base64Data,
+            payment_screenshot_uploaded_at: new Date().toISOString(),
+            status: 'payment_screenshot_uploaded'
+          } : null);
+
+          setSelectedFile(null);
+          
+          toast({
+            title: "Screenshot Uploaded Successfully",
+            description: "Your payment screenshot has been saved. Our team will review it and process your ticket.",
+          });
+
+        } catch (base64Error) {
+          console.error('Base64 conversion failed:', base64Error);
+          throw base64Error;
+        }
       }
-
-      // Update local state
-      setBooking(prev => prev ? {
-        ...prev,
-        payment_screenshot_url: publicUrl,
-        payment_screenshot_uploaded_at: new Date().toISOString(),
-        status: 'payment_screenshot_uploaded'
-      } : null);
-
-      setSelectedFile(null);
-      
-      toast({
-        title: "Screenshot Uploaded Successfully",
-        description: "Our team will review your payment and process your ticket.",
-      });
 
     } catch (error) {
       console.error('Upload error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload screenshot';
+      setUploadError(errorMessage);
+      
       toast({
         title: "Upload Failed",
-        description: "Failed to upload screenshot. Please try again.",
+        description: "Failed to upload screenshot. Please try again or contact support.",
         variant: "destructive",
       });
     } finally {
@@ -237,98 +399,6 @@ const BookingTracker = () => {
           description: ''
         };
     }
-  };
-
-  const renderFlightDetails = (flightData: any, label: string) => {
-    if (!flightData) return null;
-  
-    const segments = flightData.itineraries[0]?.segments || [];
-    if (!segments.length) return null;
-  
-    const firstSegment = segments[0];
-    const lastSegment = segments[segments.length - 1];
-    const totalStops = segments.length - 1;
-    
-    const departureTime = format(new Date(firstSegment.departure.at), "HH:mm");
-    const arrivalTime = format(new Date(lastSegment.arrival.at), "HH:mm");
-    const departureDate = format(new Date(firstSegment.departure.at), "MMM dd, yyyy");
-    const arrivalDate = format(new Date(lastSegment.arrival.at), "MMM dd, yyyy");
-    const airline = amadeusApi.getAirlineName(firstSegment.carrierCode);
-    
-    const [expanded, setExpanded] = useState(false);
-  
-    return (
-      <div className="space-y-3">
-        <h4 className="font-medium text-gray-900 flex items-center gap-2">
-          <Plane className="h-4 w-4" />
-          {label}
-        </h4>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="font-semibold">{airline}</p>
-              <p className="text-sm text-gray-500">{firstSegment.carrierCode}{firstSegment.number}</p>
-            </div>
-            <Badge variant="secondary">Economy</Badge>
-          </div>
-          
-          {/* Main Flight Summary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <MapPin className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-medium">Departure</span>
-              </div>
-              <p className="font-bold text-lg">{departureTime}</p>
-              <p className="text-sm text-gray-600">{departureDate}</p>
-              <p className="text-sm">{amadeusApi.getCityName(firstSegment.departure.iataCode)} ({firstSegment.departure.iataCode})</p>
-            </div>
-            
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <MapPin className="h-4 w-4 text-red-600" />
-                <span className="text-sm font-medium">Arrival</span>
-              </div>
-              <p className="font-bold text-lg">{arrivalTime}</p>
-              <p className="text-sm text-gray-600">{arrivalDate}</p>
-              <p className="text-sm">{amadeusApi.getCityName(lastSegment.arrival.iataCode)} ({lastSegment.arrival.iataCode})</p>
-            </div>
-          </div>
-  
-          {/* Connection Info */}
-          {totalStops > 0 && (
-            <div className="mt-4 pt-3 border-t">
-              <button 
-                onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
-              >
-                <span>{totalStops} stop{totalStops > 1 ? 's' : ''}</span>
-                <span className="text-xs">({expanded ? 'hide details' : 'show details'})</span>
-              </button>
-              
-              {expanded && (
-                <div className="mt-3 space-y-3">
-                  {segments.map((segment, index) => (
-                    <div key={index} className="flex items-center gap-3 text-sm">
-                      <span className="text-gray-500">{index + 1}.</span>
-                      <div className="flex-1">
-                        <span className="font-medium">
-                          {amadeusApi.getCityName(segment.departure.iataCode)} → {amadeusApi.getCityName(segment.arrival.iataCode)}
-                        </span>
-                        <div className="text-gray-500">
-                          {format(new Date(segment.departure.at), "HH:mm")} - {format(new Date(segment.arrival.at), "HH:mm")} • 
-                          {amadeusApi.getAirlineName(segment.carrierCode)} {segment.carrierCode}{segment.number}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
   };
 
   if (loading) {
@@ -475,6 +545,18 @@ const BookingTracker = () => {
                     </div>
                   </div>
 
+                  {/* Upload Error Alert */}
+                  {uploadError && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-800">
+                        Upload failed: {uploadError}
+                        <br />
+                        <span className="text-sm">Please try again or contact our support team on WhatsApp.</span>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {/* Screenshot Upload */}
                   {booking.status === 'pending' && (
                     <div className="space-y-4">
@@ -485,19 +567,20 @@ const BookingTracker = () => {
                           Upload a screenshot of your mobile money payment confirmation
                         </p>
                         <input
-  type="file"
-  accept="image/*"
-  onChange={handleFileSelect}
-  className="hidden"
-  id="screenshot-upload"
-/>
-<Button 
-  variant="outline" 
-  onClick={() => document.getElementById('screenshot-upload')?.click()}
-  className="cursor-pointer"
->
-  Select Screenshot
-</Button>
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                          id="screenshot-upload"
+                        />
+                        <Button 
+                          variant="outline" 
+                          onClick={() => document.getElementById('screenshot-upload')?.click()}
+                          className="cursor-pointer"
+                          disabled={uploading}
+                        >
+                          Select Screenshot
+                        </Button>
                       </div>
 
                       {selectedFile && (
@@ -508,10 +591,38 @@ const BookingTracker = () => {
                             disabled={uploading}
                             size="sm"
                           >
-                            {uploading ? "Uploading..." : "Upload"}
+                            {uploading ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Uploading...
+                              </>
+                            ) : (
+                              "Upload"
+                            )}
                           </Button>
                         </div>
                       )}
+
+                      {/* Alternative contact method */}
+                      <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                        <h5 className="font-medium text-yellow-800 mb-2">Having trouble uploading?</h5>
+                        <p className="text-sm text-yellow-700 mb-2">
+                          You can also send your payment screenshot directly to our WhatsApp:
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const message = `Hi, I need to send payment screenshot for booking ${booking.booking_reference}`;
+                            const whatsappUrl = `https://wa.me/22236302630?text=${encodeURIComponent(message)}`;
+                            window.open(whatsappUrl, '_blank');
+                          }}
+                          className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                        >
+                          <Phone className="h-4 w-4 mr-2" />
+                          Send via WhatsApp
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -534,12 +645,12 @@ const BookingTracker = () => {
                 <CardTitle>Flight Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {renderFlightDetails(flightData.outbound, isRoundTrip ? 'Outbound Flight' : 'Flight')}
+                <FlightDetailsCard flightData={flightData.outbound} label={isRoundTrip ? 'Outbound Flight' : 'Flight'} />
                 
                 {isRoundTrip && flightData.return && (
                   <>
                     <Separator />
-                    {renderFlightDetails(flightData.return, 'Return Flight')}
+                    <FlightDetailsCard flightData={flightData.return} label="Return Flight" />
                   </>
                 )}
               </CardContent>
@@ -577,6 +688,24 @@ const BookingTracker = () => {
                   </p>
                   <p className="text-sm text-gray-500">Total Amount</p>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Reservation PDF */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Reservation Document</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ReservationPDFGenerator 
+                  booking={booking}
+                  onPDFGenerated={(url) => {
+                    toast({
+                      title: "PDF Generated",
+                      description: "Your reservation document is ready for download.",
+                    });
+                  }}
+                />
               </CardContent>
             </Card>
 
