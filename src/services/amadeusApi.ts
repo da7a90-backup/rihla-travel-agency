@@ -321,7 +321,7 @@ class AmadeusApiService {
     // Fallback to comprehensive static data
     const cities: { [key: string]: string } = {
       // Africa
-      'NKC': 'Nouakchott', 'DKR': 'Dakar', 'CMN': 'Casablanca', 'RAK': 'Marrakech',
+      'NKC': 'Nouakchott', 'DSS': 'Dakar', 'CMN': 'Casablanca', 'RAK': 'Marrakech',
       'TUN': 'Tunis', 'ALG': 'Algiers', 'CAI': 'Cairo', 'LXR': 'Luxor',
       'HRG': 'Hurghada', 'SSH': 'Sharm El Sheikh', 'ADD': 'Addis Ababa',
       'NBO': 'Nairobi', 'KGL': 'Kigali', 'DAR': 'Dar es Salaam', 'EBB': 'Entebbe',
@@ -499,6 +499,75 @@ class AmadeusApiService {
       } else {
         throw new Error('Flight search failed. Please try again.');
       }
+    }
+  }
+
+  async createFlightHold(flightOffer: AmadeusFlightOffer, passengerData: any): Promise<{holdId: string, expiresAt: Date}> {
+    try {
+      const token = await this.getAccessToken();
+      
+      const requestBody = {
+        data: {
+          type: "flight-order",
+          flightOffers: [flightOffer],
+          travelers: [{
+            id: "1",
+            dateOfBirth: passengerData.dateOfBirth, // Must be YYYY-MM-DD format
+            name: {
+              firstName: passengerData.firstName.toUpperCase(),
+              lastName: passengerData.lastName.toUpperCase()
+            },
+            gender: passengerData.gender, // You'll need to add gender field to form
+            contact: {
+              emailAddress: passengerData.email,
+              phones: [{
+                deviceType: "MOBILE",
+                countryCallingCode: "222",
+                number: passengerData.whatsapp.replace(/\D/g, '').slice(-8) // Just the number part
+              }]
+            },
+            documents: [{
+              documentType: "PASSPORT",
+              number: passengerData.passportNumber,
+              issuanceCountry: passengerData.nationality || "MR",
+              nationality: passengerData.nationality || "MR",
+              issuanceDate: passengerData.passportIssuanceDate,
+              expiryDate: passengerData.passportExpiryDate,
+              holder: true
+            }]
+          }],
+          ticketingAgreement: {
+            option: "DELAY_TO_CANCEL",
+            delay: "2D" // 48 hours hold
+          }
+        }
+      };
+  
+      console.log('Amadeus request body:', JSON.stringify(requestBody, null, 2));
+  
+      const response = await fetch(`${AMADEUS_BASE_URL}/v1/booking/flight-orders`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+  
+      const responseData = await response.json();
+      console.log('Amadeus response:', responseData);
+  
+      if (!response.ok) {
+        throw new Error(`Hold creation failed: ${response.status} - ${JSON.stringify(responseData)}`);
+      }
+  
+      const holdId = responseData.data.id;
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours from now
+      
+      return { holdId, expiresAt };
+    } catch (error) {
+      console.error('Amadeus hold creation error:', error);
+      throw new Error('Failed to create flight hold');
     }
   }
 

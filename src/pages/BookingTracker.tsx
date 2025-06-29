@@ -241,15 +241,22 @@ const BookingTracker = () => {
 
   const renderFlightDetails = (flightData: any, label: string) => {
     if (!flightData) return null;
-
-    const segment = flightData.itineraries[0]?.segments[0];
-    if (!segment) return null;
-
-    const departureTime = format(new Date(segment.departure.at), "HH:mm");
-    const arrivalTime = format(new Date(segment.arrival.at), "HH:mm");
-    const departureDate = format(new Date(segment.departure.at), "MMM dd, yyyy");
-    const airline = amadeusApi.getAirlineName(segment.carrierCode);
-
+  
+    const segments = flightData.itineraries[0]?.segments || [];
+    if (!segments.length) return null;
+  
+    const firstSegment = segments[0];
+    const lastSegment = segments[segments.length - 1];
+    const totalStops = segments.length - 1;
+    
+    const departureTime = format(new Date(firstSegment.departure.at), "HH:mm");
+    const arrivalTime = format(new Date(lastSegment.arrival.at), "HH:mm");
+    const departureDate = format(new Date(firstSegment.departure.at), "MMM dd, yyyy");
+    const arrivalDate = format(new Date(lastSegment.arrival.at), "MMM dd, yyyy");
+    const airline = amadeusApi.getAirlineName(firstSegment.carrierCode);
+    
+    const [expanded, setExpanded] = useState(false);
+  
     return (
       <div className="space-y-3">
         <h4 className="font-medium text-gray-900 flex items-center gap-2">
@@ -260,11 +267,12 @@ const BookingTracker = () => {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="font-semibold">{airline}</p>
-              <p className="text-sm text-gray-500">{segment.carrierCode}{segment.number}</p>
+              <p className="text-sm text-gray-500">{firstSegment.carrierCode}{firstSegment.number}</p>
             </div>
             <Badge variant="secondary">Economy</Badge>
           </div>
           
+          {/* Main Flight Summary */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -273,7 +281,7 @@ const BookingTracker = () => {
               </div>
               <p className="font-bold text-lg">{departureTime}</p>
               <p className="text-sm text-gray-600">{departureDate}</p>
-              <p className="text-sm">{amadeusApi.getCityName(segment.departure.iataCode)} ({segment.departure.iataCode})</p>
+              <p className="text-sm">{amadeusApi.getCityName(firstSegment.departure.iataCode)} ({firstSegment.departure.iataCode})</p>
             </div>
             
             <div>
@@ -282,10 +290,42 @@ const BookingTracker = () => {
                 <span className="text-sm font-medium">Arrival</span>
               </div>
               <p className="font-bold text-lg">{arrivalTime}</p>
-              <p className="text-sm text-gray-600">{format(new Date(segment.arrival.at), "MMM dd, yyyy")}</p>
-              <p className="text-sm">{amadeusApi.getCityName(segment.arrival.iataCode)} ({segment.arrival.iataCode})</p>
+              <p className="text-sm text-gray-600">{arrivalDate}</p>
+              <p className="text-sm">{amadeusApi.getCityName(lastSegment.arrival.iataCode)} ({lastSegment.arrival.iataCode})</p>
             </div>
           </div>
+  
+          {/* Connection Info */}
+          {totalStops > 0 && (
+            <div className="mt-4 pt-3 border-t">
+              <button 
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+              >
+                <span>{totalStops} stop{totalStops > 1 ? 's' : ''}</span>
+                <span className="text-xs">({expanded ? 'hide details' : 'show details'})</span>
+              </button>
+              
+              {expanded && (
+                <div className="mt-3 space-y-3">
+                  {segments.map((segment, index) => (
+                    <div key={index} className="flex items-center gap-3 text-sm">
+                      <span className="text-gray-500">{index + 1}.</span>
+                      <div className="flex-1">
+                        <span className="font-medium">
+                          {amadeusApi.getCityName(segment.departure.iataCode)} → {amadeusApi.getCityName(segment.arrival.iataCode)}
+                        </span>
+                        <div className="text-gray-500">
+                          {format(new Date(segment.departure.at), "HH:mm")} - {format(new Date(segment.arrival.at), "HH:mm")} • 
+                          {amadeusApi.getAirlineName(segment.carrierCode)} {segment.carrierCode}{segment.number}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -445,17 +485,19 @@ const BookingTracker = () => {
                           Upload a screenshot of your mobile money payment confirmation
                         </p>
                         <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFileSelect}
-                          className="hidden"
-                          id="screenshot-upload"
-                        />
-                        <label htmlFor="screenshot-upload">
-                          <Button variant="outline" className="cursor-pointer">
-                            Select Screenshot
-                          </Button>
-                        </label>
+  type="file"
+  accept="image/*"
+  onChange={handleFileSelect}
+  className="hidden"
+  id="screenshot-upload"
+/>
+<Button 
+  variant="outline" 
+  onClick={() => document.getElementById('screenshot-upload')?.click()}
+  className="cursor-pointer"
+>
+  Select Screenshot
+</Button>
                       </div>
 
                       {selectedFile && (

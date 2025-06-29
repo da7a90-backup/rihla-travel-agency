@@ -14,6 +14,7 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { amadeusApi } from "@/services/amadeusApi";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 const BookingForm = () => {
   const location = useLocation();
@@ -34,6 +35,10 @@ const BookingForm = () => {
     passportNumber: "",
     dateOfBirth: "",
     nationality: "",
+    gender: "",           // ADD THIS
+    passportIssuanceDate: "",  // ADD THIS
+    passportExpiryDate: "",    // ADD THIS
+    passportIssuanceCountry: "", // ADD THIS
     specialRequests: ""
   });
 
@@ -53,8 +58,18 @@ const BookingForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-
+  
     try {
+      // First create Amadeus hold
+      let holdResult = null;
+      try {
+        holdResult = await amadeusApi.createFlightHold(bookingFlight, formData);
+        console.log('Amadeus hold created:', holdResult);
+      } catch (holdError) {
+        console.error('Hold creation failed:', holdError);
+        // Continue without hold - business decision
+      }
+  
       // Prepare flight data for storage
       const flightData = {
         type: isRoundTrip ? 'round-trip' : 'one-way',
@@ -62,28 +77,36 @@ const BookingForm = () => {
         return: isRoundTrip ? returnFlight : null,
         searchCriteria: searchData
       };
-
-      // Calculate final price including taxes (15% markup)
+  
       const basePrice = calculateTotalPrice();
       const finalPrice = Math.round(basePrice * 1.15);
-
+  
       // Insert booking into Supabase
       const { data: booking, error } = await (supabase as any)
-        .from('bookings')
-        .insert({
-          // Passenger information
-          passenger_first_name: formData.firstName,
-          passenger_last_name: formData.lastName,
-          passenger_email: formData.email,
-          passenger_phone: formData.phone,
-          passenger_whatsapp: formData.whatsapp,
-          passenger_passport: formData.passportNumber,
-          passenger_date_of_birth: formData.dateOfBirth || null,
-          passenger_nationality: formData.nationality,
+      .from('bookings')
+      .insert({
+        // Passenger information
+        passenger_first_name: formData.firstName,
+        passenger_last_name: formData.lastName,
+        passenger_email: formData.email,
+        passenger_phone: formData.phone,
+        passenger_whatsapp: formData.whatsapp,
+        passenger_passport: formData.passportNumber,
+        passenger_date_of_birth: formData.dateOfBirth || null,
+        passenger_nationality: formData.nationality,
+        passenger_gender: formData.gender,                    // ADD
+        passport_issuance_date: formData.passportIssuanceDate, // ADD
+        passport_expiry_date: formData.passportExpiryDate,     // ADD
+        passport_issuance_country: formData.passportIssuanceCountry, // ADD
           
           // Flight details
           amadeus_offer_id: bookingFlight?.id,
           flight_data: flightData,
+          
+          // Hold information
+          amadeus_hold_id: holdResult?.holdId || null,
+          hold_expires_at: holdResult?.expiresAt || null,
+          hold_status: holdResult ? 'active' : 'none',
           
           // Search parameters
           origin_code: searchData?.from,
@@ -105,26 +128,23 @@ const BookingForm = () => {
         })
         .select()
         .single();
-
-      if (error) {
-        throw error;
-      }
-
-      console.log('Booking created:', booking);
-
+  
+      if (error) throw error;
+  
       toast({
-        title: "Booking Submitted Successfully!",
-        description: `Booking reference: ${booking.booking_reference}`,
+        title: holdResult ? "Booking Reserved Successfully!" : "Booking Submitted Successfully!",
+        description: holdResult 
+          ? `Flight held for 48 hours. Reference: ${booking.booking_reference}`
+          : `Booking reference: ${booking.booking_reference}`,
       });
-
-      // Redirect to tracking page
+  
       navigate(`/track/${booking.tracking_token}`, {
         state: { 
           bookingReference: booking.booking_reference,
           newBooking: true 
         }
       });
-
+  
     } catch (error) {
       console.error('Booking submission error:', error);
       toast({
@@ -379,15 +399,183 @@ const BookingForm = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="nationality">Nationality *</Label>
-                    <Input
-                      id="nationality"
-                      value={formData.nationality}
-                      onChange={(e) => handleInputChange("nationality", e.target.value)}
-                      required
-                      className="border-gray-200 focus:border-blue-500"
-                    />
-                  </div>
+  <Label htmlFor="nationality">Nationality *</Label>
+  <Select value={formData.nationality} onValueChange={(value) => handleInputChange("nationality", value)}>
+    <SelectTrigger className="border-gray-200 focus:border-blue-500">
+      <SelectValue placeholder="Select nationality" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="MR">Mauritanian</SelectItem>
+      <SelectItem value="FR">French</SelectItem>
+      <SelectItem value="US">American</SelectItem>
+      <SelectItem value="GB">British</SelectItem>
+      <SelectItem value="DE">German</SelectItem>
+      <SelectItem value="ES">Spanish</SelectItem>
+      <SelectItem value="IT">Italian</SelectItem>
+      <SelectItem value="MA">Moroccan</SelectItem>
+      <SelectItem value="SN">Senegalese</SelectItem>
+      <SelectItem value="ML">Malian</SelectItem>
+      <SelectItem value="BF">Burkinabé</SelectItem>
+      <SelectItem value="CI">Ivorian</SelectItem>
+      <SelectItem value="GH">Ghanaian</SelectItem>
+      <SelectItem value="NG">Nigerian</SelectItem>
+      <SelectItem value="EG">Egyptian</SelectItem>
+      <SelectItem value="DZ">Algerian</SelectItem>
+      <SelectItem value="TN">Tunisian</SelectItem>
+      <SelectItem value="LY">Libyan</SelectItem>
+      <SelectItem value="SD">Sudanese</SelectItem>
+      <SelectItem value="ET">Ethiopian</SelectItem>
+      <SelectItem value="KE">Kenyan</SelectItem>
+      <SelectItem value="UG">Ugandan</SelectItem>
+      <SelectItem value="TZ">Tanzanian</SelectItem>
+      <SelectItem value="ZA">South African</SelectItem>
+      <SelectItem value="AE">Emirati</SelectItem>
+      <SelectItem value="SA">Saudi</SelectItem>
+      <SelectItem value="QA">Qatari</SelectItem>
+      <SelectItem value="KW">Kuwaiti</SelectItem>
+      <SelectItem value="BH">Bahraini</SelectItem>
+      <SelectItem value="OM">Omani</SelectItem>
+      <SelectItem value="JO">Jordanian</SelectItem>
+      <SelectItem value="LB">Lebanese</SelectItem>
+      <SelectItem value="SY">Syrian</SelectItem>
+      <SelectItem value="IQ">Iraqi</SelectItem>
+      <SelectItem value="IR">Iranian</SelectItem>
+      <SelectItem value="TR">Turkish</SelectItem>
+      <SelectItem value="IN">Indian</SelectItem>
+      <SelectItem value="PK">Pakistani</SelectItem>
+      <SelectItem value="BD">Bangladeshi</SelectItem>
+      <SelectItem value="CN">Chinese</SelectItem>
+      <SelectItem value="JP">Japanese</SelectItem>
+      <SelectItem value="KR">South Korean</SelectItem>
+      <SelectItem value="TH">Thai</SelectItem>
+      <SelectItem value="VN">Vietnamese</SelectItem>
+      <SelectItem value="ID">Indonesian</SelectItem>
+      <SelectItem value="MY">Malaysian</SelectItem>
+      <SelectItem value="SG">Singaporean</SelectItem>
+      <SelectItem value="PH">Filipino</SelectItem>
+      <SelectItem value="AU">Australian</SelectItem>
+      <SelectItem value="NZ">New Zealand</SelectItem>
+      <SelectItem value="CA">Canadian</SelectItem>
+      <SelectItem value="MX">Mexican</SelectItem>
+      <SelectItem value="BR">Brazilian</SelectItem>
+      <SelectItem value="AR">Argentinian</SelectItem>
+      <SelectItem value="CL">Chilean</SelectItem>
+      <SelectItem value="CO">Colombian</SelectItem>
+      <SelectItem value="PE">Peruvian</SelectItem>
+      <SelectItem value="VE">Venezuelan</SelectItem>
+      <SelectItem value="RU">Russian</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label htmlFor="gender">Gender *</Label>
+    <Select value={formData.gender} onValueChange={(value) => handleInputChange("gender", value)}>
+      <SelectTrigger className="border-gray-200 focus:border-blue-500">
+        <SelectValue placeholder="Select gender" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="MALE">Male</SelectItem>
+        <SelectItem value="FEMALE">Female</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+  <div className="space-y-2">
+  <Label htmlFor="passportIssuanceCountry">Passport Issuing Country *</Label>
+  <Select value={formData.passportIssuanceCountry} onValueChange={(value) => handleInputChange("passportIssuanceCountry", value)}>
+    <SelectTrigger className="border-gray-200 focus:border-blue-500">
+      <SelectValue placeholder="Select issuing country" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="MR">Mauritania</SelectItem>
+      <SelectItem value="FR">France</SelectItem>
+      <SelectItem value="US">United States</SelectItem>
+      <SelectItem value="GB">United Kingdom</SelectItem>
+      <SelectItem value="DE">Germany</SelectItem>
+      <SelectItem value="ES">Spain</SelectItem>
+      <SelectItem value="IT">Italy</SelectItem>
+      <SelectItem value="MA">Morocco</SelectItem>
+      <SelectItem value="SN">Senegal</SelectItem>
+      <SelectItem value="ML">Mali</SelectItem>
+      <SelectItem value="BF">Burkina Faso</SelectItem>
+      <SelectItem value="CI">Côte d'Ivoire</SelectItem>
+      <SelectItem value="GH">Ghana</SelectItem>
+      <SelectItem value="NG">Nigeria</SelectItem>
+      <SelectItem value="EG">Egypt</SelectItem>
+      <SelectItem value="DZ">Algeria</SelectItem>
+      <SelectItem value="TN">Tunisia</SelectItem>
+      <SelectItem value="LY">Libya</SelectItem>
+      <SelectItem value="SD">Sudan</SelectItem>
+      <SelectItem value="ET">Ethiopia</SelectItem>
+      <SelectItem value="KE">Kenya</SelectItem>
+      <SelectItem value="UG">Uganda</SelectItem>
+      <SelectItem value="TZ">Tanzania</SelectItem>
+      <SelectItem value="ZA">South Africa</SelectItem>
+      <SelectItem value="AE">UAE</SelectItem>
+      <SelectItem value="SA">Saudi Arabia</SelectItem>
+      <SelectItem value="QA">Qatar</SelectItem>
+      <SelectItem value="KW">Kuwait</SelectItem>
+      <SelectItem value="BH">Bahrain</SelectItem>
+      <SelectItem value="OM">Oman</SelectItem>
+      <SelectItem value="JO">Jordan</SelectItem>
+      <SelectItem value="LB">Lebanon</SelectItem>
+      <SelectItem value="SY">Syria</SelectItem>
+      <SelectItem value="IQ">Iraq</SelectItem>
+      <SelectItem value="IR">Iran</SelectItem>
+      <SelectItem value="TR">Turkey</SelectItem>
+      <SelectItem value="IN">India</SelectItem>
+      <SelectItem value="PK">Pakistan</SelectItem>
+      <SelectItem value="BD">Bangladesh</SelectItem>
+      <SelectItem value="CN">China</SelectItem>
+      <SelectItem value="JP">Japan</SelectItem>
+      <SelectItem value="KR">South Korea</SelectItem>
+      <SelectItem value="TH">Thailand</SelectItem>
+      <SelectItem value="VN">Vietnam</SelectItem>
+      <SelectItem value="ID">Indonesia</SelectItem>
+      <SelectItem value="MY">Malaysia</SelectItem>
+      <SelectItem value="SG">Singapore</SelectItem>
+      <SelectItem value="PH">Philippines</SelectItem>
+      <SelectItem value="AU">Australia</SelectItem>
+      <SelectItem value="NZ">New Zealand</SelectItem>
+      <SelectItem value="CA">Canada</SelectItem>
+      <SelectItem value="MX">Mexico</SelectItem>
+      <SelectItem value="BR">Brazil</SelectItem>
+      <SelectItem value="AR">Argentina</SelectItem>
+      <SelectItem value="CL">Chile</SelectItem>
+      <SelectItem value="CO">Colombia</SelectItem>
+      <SelectItem value="PE">Peru</SelectItem>
+      <SelectItem value="VE">Venezuela</SelectItem>
+      <SelectItem value="RU">Russia</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
+</div>
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label htmlFor="passportIssuanceDate">Passport Issue Date *</Label>
+    <Input
+      id="passportIssuanceDate"
+      type="date"
+      value={formData.passportIssuanceDate}
+      onChange={(e) => handleInputChange("passportIssuanceDate", e.target.value)}
+      required
+      className="border-gray-200 focus:border-blue-500"
+    />
+  </div>
+  <div className="space-y-2">
+    <Label htmlFor="passportExpiryDate">Passport Expiry Date *</Label>
+    <Input
+      id="passportExpiryDate"
+      type="date"
+      value={formData.passportExpiryDate}
+      onChange={(e) => handleInputChange("passportExpiryDate", e.target.value)}
+      required
+      className="border-gray-200 focus:border-blue-500"
+    />
+  </div>
+</div>
 
                   <div className="space-y-2">
                     <Label htmlFor="specialRequests">Special Requests</Label>
